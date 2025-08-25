@@ -1,20 +1,38 @@
 from flask import Flask, request, jsonify
 import user_agents
+import ipaddress
 
 app = Flask(__name__)
+
+def get_real_ip():
+    # Берём список адресов из X-Forwarded-For (если прокси)
+    x_forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if x_forwarded_for:
+        # Берём первый адрес (обычно это клиентский)
+        ip_candidates = [ip.strip() for ip in x_forwarded_for.split(",")]
+    else:
+        # Fallback — прямой IP
+        ip_candidates = [request.remote_addr]
+
+    # Проверяем каждый IP
+    for ip in ip_candidates:
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            # Если это валидный IPv4 или IPv6 — возвращаем
+            return str(ip_obj)
+        except ValueError:
+            continue
+    return "Unknown"
 
 @app.route("/", defaults={"path": ""})
 @app.route("/<path:path>")
 def catch_all(path):
-    # IP-адрес клиента
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-
-    # User-Agent
+    client_ip = get_real_ip()
     ua_string = request.headers.get("User-Agent", "Unknown")
     ua = user_agents.parse(ua_string)
 
     data = {
-        "client_ip": ip,
+        "client_ip": client_ip,  # Может быть IPv4 или IPv6
         "user_agent_raw": ua_string,
         "device": {
             "family": ua.device.family,
@@ -38,5 +56,4 @@ def catch_all(path):
     return jsonify(data)
 
 if __name__ == "__main__":
-    # Локально можно запустить так
     app.run(host="0.0.0.0", port=5000)
